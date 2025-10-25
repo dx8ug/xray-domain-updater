@@ -785,7 +785,7 @@ def main() -> None:
     setup_logging(args.verbose if hasattr(args, 'verbose') else False)
 
     if not args.command:
-        parse_args().print_help()
+        get_logger().error('Команда не указана. Используйте -h или --help для получения справки.')
         sys.exit(1)
 
     command_handler: Callable[[argparse.Namespace], None] | None = COMMANDS.get(args.command)
