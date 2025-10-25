@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Any
 
 
+# ==== Xkeen service configuration ====
+XKEEN_PATH = '/opt/sbin/xkeen'
+XKEEN_ENV_PATH = 'PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin'
+XKEEN_RESTART_TIMEOUT = 30  # seconds
+XKEEN_STATUS_TIMEOUT = 15  # seconds
+
+
 # ==== Logging configuration ====
 def setup_logging(verbose: bool = False) -> logging.Logger:
     """Настроить logging для приложения."""
@@ -532,9 +539,9 @@ def restart_service(config: ConfigFile) -> None:
     try:
         get_logger().info('Выполняется xkeen -restart')
 
-        restart_command = 'PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin /opt/sbin/xkeen -restart 2>&1'
+        restart_command = f'{XKEEN_ENV_PATH} {XKEEN_PATH} -restart 2>&1'
 
-        execute_ssh_command(restart_command, config, check=False, timeout=30, text=True)
+        execute_ssh_command(restart_command, config, check=False, timeout=XKEEN_RESTART_TIMEOUT, text=True)
         get_logger().info('xkeen -restart завершен успешно')
 
     except subprocess.TimeoutExpired:
@@ -560,12 +567,12 @@ def check_service_status(config: ConfigFile) -> bool:
     """Проверить статус сервиса xkeen."""
     try:
         execute_ssh_command(
-            'PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin /opt/sbin/xkeen -status',
+            f'{XKEEN_ENV_PATH} {XKEEN_PATH} -status',
             config,
             check=True,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=XKEEN_STATUS_TIMEOUT,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return False
@@ -578,11 +585,11 @@ def check_service_status_with_output(config: ConfigFile) -> bool:
     try:
         get_logger().info('Выполнение xkeen -status...')
         result = execute_ssh_command(
-            'PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin /opt/sbin/xkeen -status',
+            f'{XKEEN_ENV_PATH} {XKEEN_PATH} -status',
             config,
             check=False,
             text=True,
-            timeout=15,
+            timeout=XKEEN_STATUS_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         get_logger().error('Тайм-аут при выполнении xkeen -status')
