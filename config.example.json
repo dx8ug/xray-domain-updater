@@ -1,0 +1,16 @@
+{
+    "ssh": {
+        "host": "your.server.ip",
+        "user": "root",
+        "key_path": "~/.ssh/your_key"
+    },
+    "xray": {
+        "remote_config_path": "/opt/etc/xray/configs/05_routing.json",
+        "target_outbound_tag": "vless-reality"
+    },
+    "backup": {
+        "dir": "/opt/etc/xray/backups",
+        "count": 3,
+        "filename_format": "05_routing_%Y%m%d_%H%M%S.json"
+    }
+}
