@@ -7,8 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -397,45 +396,18 @@ class ConfigFile:
         self.check_file_permissions(self.ssh_key)
 
 
-@contextmanager
-def ssh_connection(config: ConfigFile) -> Iterator[None]:
-    """Context manager for SSH operations with error handling."""
-    if not config.ssh_key.exists():
-        get_logger().error(f'SSH ключ не найден: {config.ssh_key}')
-        sys.exit(1)
-
-    try:
-        subprocess.run(
-            [
-                'ssh',
-                '-i',
-                str(config.ssh_key),
-                f'{config.ssh_user}@{config.ssh_host}',
-                "echo 'connection test'",
-            ],
-            capture_output=True,
-            check=True,
-            text=True,
-        )
-        yield
-    except subprocess.CalledProcessError as e:
-        get_logger().error(f'Ошибка SSH подключения к {config.ssh_host}: {e.stderr}')
-        sys.exit(1)
-
-
 def execute_ssh_command(
     command: str, config: ConfigFile, *, check: bool = False, **kwargs: Any
 ) -> subprocess.CompletedProcess[Any]:
     """Выполнить SSH команду на удаленном сервере."""
-    with ssh_connection(config):
-        ssh_cmd = [
-            'ssh',
-            '-i',
-            str(config.ssh_key),
-            f'{config.ssh_user}@{config.ssh_host}',
-            command,
-        ]
-        return subprocess.run(ssh_cmd, check=check, **kwargs)
+    ssh_cmd = [
+        'ssh',
+        '-i',
+        str(config.ssh_key),
+        f'{config.ssh_user}@{config.ssh_host}',
+        command,
+    ]
+    return subprocess.run(ssh_cmd, check=check, **kwargs)
 
 
 # ==== Argument parsing ====
