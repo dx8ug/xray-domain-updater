@@ -283,8 +283,26 @@ class ConfigFile:
 
     @staticmethod
     def get_config_path() -> Path:
-        """Возвращает путь к конфигурационному файлу."""
-        return Path.home() / '.config' / 'xray-updater' / 'config.json'
+        """Возвращает путь к конфигурационному файлу с каскадным поиском.
+
+        Проверяет в следующем порядке:
+        1. Рядом со скриптом: ./config.json
+        2. В XDG директории: ~/.config/xray-domain-updater/config.json
+
+        Возвращает первый найденный файл или XDG путь если ничего не найдено.
+        """
+        # Путь рядом со скриптом
+        script_dir_config = Path(__file__).parent / 'config.json'
+        if script_dir_config.exists():
+            return script_dir_config
+
+        # Путь в XDG директории (исправлено имя: xray-domain-updater)
+        xdg_config = Path.home() / '.config' / 'xray-domain-updater' / 'config.json'
+        if xdg_config.exists():
+            return xdg_config
+
+        # Если ничего не найдено, возвращаем XDG путь для сообщения об ошибке
+        return xdg_config
 
     @staticmethod
     def check_file_permissions(path: Path) -> None:
@@ -306,14 +324,23 @@ class ConfigFile:
             config_path = cls.get_config_path()
 
         if not config_path.exists():
-            get_logger().error(f'Конфигурационный файл не найден: {config_path}')
-            get_logger().error(f'Ожидаемый путь: {config_path}')
+            get_logger().error('Конфигурационный файл не найден')
+            get_logger().error('Проверены следующие местоположения:')
+
+            script_dir_config = Path(__file__).parent / 'config.json'
+            xdg_config = Path.home() / '.config' / 'xray-domain-updater' / 'config.json'
+
+            get_logger().error(f'  1. {script_dir_config}')
+            get_logger().error(f'  2. {xdg_config}')
+
             example_path = Path(__file__).parent / 'config.example.json'
             if example_path.exists():
-                get_logger().error(f'Пример конфигурации: {example_path}')
+                get_logger().error(f'\nПример конфигурации: {example_path}')
             else:
-                get_logger().error('Пример конфигурации недоступен')
+                get_logger().error('\nПример конфигурации недоступен')
+
             get_logger().error('Создайте конфигурационный файл и заполните его данными')
+            get_logger().error('Или используйте флаг --config для указания пути к файлу')
             sys.exit(1)
 
         cls.check_file_permissions(config_path)
@@ -408,6 +435,13 @@ def execute_ssh_command(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Управление списком доменов xray на удалённом сервере.')
     parser.add_argument('--verbose', '-v', action='store_true', help='Включить подробный вывод')
+    parser.add_argument(
+        '--config',
+        type=Path,
+        default=None,
+        help='Путь к конфигурационному файлу '
+        '(по умолчанию: ./config.json или ~/.config/xray-domain-updater/config.json)',
+    )
     subparsers = parser.add_subparsers(dest='command', help='Доступные команды')
 
     # Существующие команды
@@ -621,7 +655,7 @@ def remove_domain_from_config(
 def handle_list_command(args: argparse.Namespace) -> None:
     """Handle list command."""
     try:
-        config = ConfigFile.from_file()
+        config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
         xray_config: XrayConfig = read_remote_json(config)
         list_domains(xray_config, config)
     except (ValueError, KeyError, TypeError) as e:
@@ -632,7 +666,7 @@ def handle_list_command(args: argparse.Namespace) -> None:
 def handle_add_command(args: argparse.Namespace) -> None:
     """Handle add command."""
     try:
-        config = ConfigFile.from_file()
+        config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
         xray_config: XrayConfig = read_remote_json(config)
         updated: XrayConfig = add_domain_to_config(xray_config, args.domain, config)
         write_remote_json(updated, config, create_backup=True)
@@ -645,7 +679,7 @@ def handle_add_command(args: argparse.Namespace) -> None:
 def handle_remove_command(args: argparse.Namespace) -> None:
     """Handle remove command."""
     try:
-        config = ConfigFile.from_file()
+        config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
         xray_config: XrayConfig = read_remote_json(config)
 
         # Проверяем наличие флага -y
@@ -664,13 +698,13 @@ def handle_remove_command(args: argparse.Namespace) -> None:
 
 def handle_restart_command(args: argparse.Namespace) -> None:
     """Handle restart command."""
-    config = ConfigFile.from_file()
+    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     restart_service(config)
 
 
 def handle_backup_list_command(args: argparse.Namespace) -> None:
     """Handle backup list command."""
-    config = ConfigFile.from_file()
+    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
     backups = backup_manager.list_backups(config)
     if not backups:
@@ -684,7 +718,7 @@ def handle_backup_list_command(args: argparse.Namespace) -> None:
 
 def handle_backup_clean_command(args: argparse.Namespace) -> None:
     """Handle backup clean command."""
-    config = ConfigFile.from_file()
+    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
     backup_manager.cleanup_old_backups(config)
     get_logger().info('Старые бэкапы очищены')
@@ -709,7 +743,7 @@ def handle_restore_command(args: argparse.Namespace) -> None:
         get_logger().error('Укажите --preview для просмотра или --confirm для восстановления')
         sys.exit(1)
 
-    config = ConfigFile.from_file()
+    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
 
     if args.preview:
@@ -726,7 +760,7 @@ def handle_restore_command(args: argparse.Namespace) -> None:
 
 def handle_status_command(args: argparse.Namespace) -> None:
     """Handle status command."""
-    config = ConfigFile.from_file()
+    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     if check_service_status_with_output(config):
         get_logger().info('Сервис работает корректно')
     else:
