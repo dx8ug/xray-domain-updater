@@ -32,18 +32,15 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     logger = logging.getLogger('xray-updater')
     logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     logger.propagate = False
-
     logger.handlers.clear()
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
-    console_handler.addFilter(lambda record: record.levelno < logging.WARNING)
+    stdout = logging.StreamHandler(sys.stdout)
+    stdout.addFilter(lambda r: r.levelno < logging.WARNING)
+    logger.addHandler(stdout)
 
-    error_handler = logging.StreamHandler(sys.stderr)
-    error_handler.setLevel(logging.WARNING)
-
-    logger.addHandler(console_handler)
-    logger.addHandler(error_handler)
+    stderr = logging.StreamHandler(sys.stderr)
+    stderr.setLevel(logging.WARNING)
+    logger.addHandler(stderr)
 
     return logger
 
