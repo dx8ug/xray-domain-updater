@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import functools
 import json
 import logging
 import re
@@ -636,59 +637,63 @@ def remove_domain_from_config(
     return xray_config
 
 
-def handle_list_command(args: argparse.Namespace) -> None:
+def command_handler(func: Callable[[argparse.Namespace, ConfigFile], None]) -> Callable[[argparse.Namespace], None]:
+    """Decorator for command handlers with config loading and error handling."""
+
+    @functools.wraps(func)
+    def wrapper(args: argparse.Namespace) -> None:
+        try:
+            config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
+            return func(args, config)
+        except (ValueError, KeyError, TypeError) as e:
+            command_name = func.__name__.replace('handle_', '').replace('_command', '')
+            get_logger().error(f'Error handling {command_name} command: {e}')
+            sys.exit(1)
+
+    return wrapper
+
+
+@command_handler
+def handle_list_command(args: argparse.Namespace, config: ConfigFile) -> None:
     """Handle list command."""
-    try:
-        config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
-        xray_config: XrayConfig = read_remote_json(config)
-        list_domains(xray_config=xray_config, config=config)
-    except (ValueError, KeyError, TypeError) as e:
-        get_logger().error(f'Error handling list command: {e}')
-        sys.exit(1)
+    xray_config: XrayConfig = read_remote_json(config)
+    list_domains(xray_config=xray_config, config=config)
 
 
-def handle_add_command(args: argparse.Namespace) -> None:
+@command_handler
+def handle_add_command(args: argparse.Namespace, config: ConfigFile) -> None:
     """Handle add command."""
-    try:
-        config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
-        xray_config: XrayConfig = read_remote_json(config)
-        updated: XrayConfig = add_domain_to_config(xray_config=xray_config, domain_to_add=args.domain, config=config)
-        write_remote_json(xray_config=updated, config=config, create_backup=True)
-        restart_service(config)
-    except (ValueError, KeyError, TypeError) as e:
-        get_logger().error(f'Error handling add command: {e}')
-        sys.exit(1)
-
-
-def handle_remove_command(args: argparse.Namespace) -> None:
-    """Handle remove command."""
-    try:
-        config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
-        xray_config: XrayConfig = read_remote_json(config)
-
-        confirm = getattr(args, 'yes', False)
-
-        updated: XrayConfig = remove_domain_from_config(
-            xray_config=xray_config, domain_index=args.index, config=config, confirm=confirm
-        )
-
-        if confirm:
-            write_remote_json(xray_config=updated, config=config, create_backup=True)
-            restart_service(config)
-    except (ValueError, KeyError, TypeError) as e:
-        get_logger().error(f'Error handling remove command: {e}')
-        sys.exit(1)
-
-
-def handle_restart_command(args: argparse.Namespace) -> None:
-    """Handle restart command."""
-    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
+    xray_config: XrayConfig = read_remote_json(config)
+    updated: XrayConfig = add_domain_to_config(xray_config=xray_config, domain_to_add=args.domain, config=config)
+    write_remote_json(xray_config=updated, config=config, create_backup=True)
     restart_service(config)
 
 
-def handle_backup_list_command(args: argparse.Namespace) -> None:
+@command_handler
+def handle_remove_command(args: argparse.Namespace, config: ConfigFile) -> None:
+    """Handle remove command."""
+    xray_config: XrayConfig = read_remote_json(config)
+
+    confirm = getattr(args, 'yes', False)
+
+    updated: XrayConfig = remove_domain_from_config(
+        xray_config=xray_config, domain_index=args.index, config=config, confirm=confirm
+    )
+
+    if confirm:
+        write_remote_json(xray_config=updated, config=config, create_backup=True)
+        restart_service(config)
+
+
+@command_handler
+def handle_restart_command(args: argparse.Namespace, config: ConfigFile) -> None:
+    """Handle restart command."""
+    restart_service(config)
+
+
+@command_handler
+def handle_backup_list_command(args: argparse.Namespace, config: ConfigFile) -> None:
     """Handle backup list command."""
-    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
     backups = backup_manager.list_backups(config=config)
     if not backups:
@@ -700,9 +705,9 @@ def handle_backup_list_command(args: argparse.Namespace) -> None:
     get_logger().info(f'\nTotal backups: {len(backups)}')
 
 
-def handle_backup_clean_command(args: argparse.Namespace) -> None:
+@command_handler
+def handle_backup_clean_command(args: argparse.Namespace, config: ConfigFile) -> None:
     """Handle backup clean command."""
-    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
     backup_manager.cleanup_old_backups(config=config)
     get_logger().info('Old backups cleaned')
@@ -721,13 +726,13 @@ def handle_backup_command(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def handle_restore_command(args: argparse.Namespace) -> None:
+@command_handler
+def handle_restore_command(args: argparse.Namespace, config: ConfigFile) -> None:
     """Handle restore command."""
     if not args.preview and not args.confirm:
         get_logger().error('Specify --preview to view or --confirm to restore')
         sys.exit(1)
 
-    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
 
     if args.preview:
@@ -742,9 +747,9 @@ def handle_restore_command(args: argparse.Namespace) -> None:
         restart_service(config)
 
 
-def handle_status_command(args: argparse.Namespace) -> None:
+@command_handler
+def handle_status_command(args: argparse.Namespace, config: ConfigFile) -> None:
     """Handle status command."""
-    config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     if check_service_status(config):
         get_logger().info('Service is running correctly')
     else:
