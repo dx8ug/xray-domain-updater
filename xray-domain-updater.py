@@ -14,36 +14,30 @@ from pathlib import Path
 from typing import Any
 
 
-# ==== Xkeen service configuration ====
 XKEEN_PATH = '/opt/sbin/xkeen'
 XKEEN_ENV_PATH = 'PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin'
 XKEEN_RESTART_TIMEOUT = 30  # seconds
 XKEEN_STATUS_TIMEOUT = 15  # seconds
 
 
-# ==== Backup filename configuration ====
 BACKUP_FILENAME_FORMAT = 'routing_%Y%m%d_%H%M%S.json'
 BACKUP_FILENAME_GLOB = 'routing_*.json'
 BACKUP_FILENAME_REGEX = r'routing_(\d{8}_\d{6})\.json'
 BACKUP_TIMESTAMP_FORMAT = '%Y%m%d_%H%M%S'
 
 
-# ==== Logging configuration ====
 def setup_logging(verbose: bool = False) -> logging.Logger:
-    """Настроить logging для приложения."""
+    """Set up logging for the application."""
     logger = logging.getLogger('xray-updater')
     logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     logger.propagate = False
 
-    # Удаляем существующие обработчики
     logger.handlers.clear()
 
-    # Console handler для INFO и DEBUG (stdout)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     console_handler.addFilter(lambda record: record.levelno < logging.WARNING)
 
-    # Error handler для WARNING, ERROR, CRITICAL (stderr)
     error_handler = logging.StreamHandler(sys.stderr)
     error_handler.setLevel(logging.WARNING)
 
@@ -54,30 +48,46 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
 
 
 def get_logger() -> logging.Logger:
-    """Получить настроенный logger."""
+    """Get configured logger."""
     return logging.getLogger('xray-updater')
 
 
 @dataclass
 class XrayRule:
+    """Xray routing rule."""
+
     inbound_tag: list[str]
+    """List of inbound connection tags."""
     outbound_tag: str
+    """Outbound connection tag."""
     type: str
+    """Routing rule type."""
     domain: list[str] | None = None
+    """List of domains for routing (optional)."""
     network: str | None = None
+    """Network type (optional)."""
     port: str | None = None
+    """Port or port range (optional)."""
     protocol: list[str] | None = None
+    """List of protocols (optional)."""
 
 
 @dataclass
 class XrayRouting:
+    """Xray routing configuration."""
+
     domain_strategy: str
+    """Domain name resolution strategy."""
     rules: list[XrayRule]
+    """List of routing rules."""
 
 
 @dataclass
 class XrayConfig:
+    """Xray configuration."""
+
     routing: XrayRouting
+    """Routing configuration."""
 
     @classmethod
     def from_dict(cls, data: dict) -> 'XrayConfig':
@@ -127,7 +137,7 @@ class XrayConfig:
         }
 
     def validate_json_structure(self) -> None:
-        """Валидировать структуру конфигурации перед записью."""
+        """Validate configuration structure before writing."""
         if not self.routing:
             raise ValueError('Отсутствует секция routing')
         if not self.routing.domain_strategy:
@@ -155,13 +165,13 @@ class XrayConfig:
     def get_domains_for_outbound(self, tag: str) -> list[str]:
         rule = self.find_rule_by_outbound_tag(tag)
         self.validate_rule_has_domains(rule)
-        assert rule.domain is not None  # После validate_rule_has_domains это гарантированно
+        assert rule.domain is not None
         return rule.domain.copy()
 
     def add_domain_to_outbound(self, tag: str, domain: str) -> bool:
         rule = self.find_rule_by_outbound_tag(tag)
         self.validate_rule_has_domains(rule)
-        assert rule.domain is not None  # После validate_rule_has_domains это гарантированно
+        assert rule.domain is not None
 
         if domain not in rule.domain:
             rule.domain.append(domain)
@@ -171,7 +181,7 @@ class XrayConfig:
     def remove_domain_from_outbound(self, tag: str, domain: str) -> bool:
         rule = self.find_rule_by_outbound_tag(tag)
         self.validate_rule_has_domains(rule)
-        assert rule.domain is not None  # После validate_rule_has_domains это гарантированно
+        assert rule.domain is not None
 
         if domain in rule.domain:
             rule.domain.remove(domain)
@@ -181,23 +191,27 @@ class XrayConfig:
 
 @dataclass
 class BackupManager:
+    """Manager for configuration backups."""
+
     backup_dir: str
+    """Path to backups directory on remote server."""
     max_backups: int
+    """Maximum number of backups to keep."""
 
     def create_backup_filename(self) -> str:
-        """Создать имя файла бэкапа с текущим timestamp."""
+        """Create backup filename with current timestamp."""
         return datetime.now(UTC).strftime(BACKUP_FILENAME_FORMAT)
 
-    def ensure_backup_dir_exists(self, config: 'ConfigFile') -> None:
-        """Убедиться что директория бэкапов существует на удаленном сервере."""
+    def ensure_backup_dir_exists(self, *, config: 'ConfigFile') -> None:
+        """Ensure backup directory exists on remote server."""
         try:
-            execute_ssh_command(f'mkdir -p {self.backup_dir}', config, check=True, capture_output=True)
+            execute_ssh_command(f'mkdir -p {self.backup_dir}', config=config, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             get_logger().error(f'Ошибка создания директории бэкапов: {e.stderr}')
             raise
 
-    def create_backup(self, xray_config: XrayConfig, config: 'ConfigFile') -> str:
-        """Создать бэкап текущей конфигурации."""
+    def create_backup(self, *, xray_config: XrayConfig, config: 'ConfigFile') -> str:
+        """Create backup of current configuration."""
         backup_filename = self.create_backup_filename()
         backup_path = f'{self.backup_dir}/{backup_filename}'
 
@@ -207,7 +221,7 @@ class BackupManager:
                 tmp_path = tmp.name
 
             with open(tmp_path, 'rb') as f:
-                execute_ssh_command(f'cat > {backup_path}', config, stdin=f, check=True)
+                execute_ssh_command(f'cat > {backup_path}', config=config, stdin=f, check=True)
             Path(tmp_path).unlink()
         except subprocess.CalledProcessError as e:
             get_logger().error(f'Ошибка создания бэкапа: {e.stderr}')
@@ -215,12 +229,12 @@ class BackupManager:
         else:
             return backup_filename
 
-    def list_backups(self, config: 'ConfigFile') -> list[tuple[int, str, str]]:
-        """Получить список бэкапов: [(index, filename, timestamp)]."""
+    def list_backups(self, *, config: 'ConfigFile') -> list[tuple[int, str, str]]:
+        """Get list of backups: [(index, filename, timestamp)]."""
         try:
             result = execute_ssh_command(
                 f'ls -1t {self.backup_dir}/{BACKUP_FILENAME_GLOB} 2>/dev/null || true',
-                config,
+                config=config,
                 capture_output=True,
                 check=True,
                 text=True,
@@ -245,9 +259,9 @@ class BackupManager:
         else:
             return backups
 
-    def restore_backup(self, index: int, config: 'ConfigFile', preview_only: bool = False) -> str | None:
-        """Восстановить бэкап по индексу."""
-        backups = self.list_backups(config)
+    def restore_backup(self, *, index: int, config: 'ConfigFile', preview_only: bool = False) -> str | None:
+        """Restore backup by index."""
+        backups = self.list_backups(config=config)
         if not backups or index < 1 or index > len(backups):
             raise ValueError(f'Неверный индекс бэкапа: {index}')
 
@@ -255,21 +269,23 @@ class BackupManager:
         backup_path = f'{self.backup_dir}/{filename}'
 
         try:
-            result = execute_ssh_command(f'cat {backup_path}', config, capture_output=True, check=True, text=True)
+            result = execute_ssh_command(
+                f'cat {backup_path}', config=config, capture_output=True, check=True, text=True
+            )
 
             if preview_only:
                 return result.stdout
 
-            execute_ssh_command(f'cp {backup_path} {config.remote_json_path}', config, check=True)
+            execute_ssh_command(f'cp {backup_path} {config.remote_json_path}', config=config, check=True)
         except subprocess.CalledProcessError as e:
             get_logger().error(f'Ошибка восстановления бэкапа: {e.stderr}')
             raise
         else:
             return None
 
-    def cleanup_old_backups(self, config: 'ConfigFile') -> None:
-        """Удалить старые бэкапы, оставив только max_backups."""
-        backups = self.list_backups(config)
+    def cleanup_old_backups(self, *, config: 'ConfigFile') -> None:
+        """Remove old backups, keeping only max_backups."""
+        backups = self.list_backups(config=config)
         if len(backups) <= self.max_backups:
             return
 
@@ -278,47 +294,55 @@ class BackupManager:
         try:
             for _, filename, _ in to_remove:
                 backup_path = f'{self.backup_dir}/{filename}'
-                execute_ssh_command(f'rm -f {backup_path}', config, check=True)
+                execute_ssh_command(f'rm -f {backup_path}', config=config, check=True)
         except subprocess.CalledProcessError as e:
             get_logger().warning(f'Ошибка очистки старых бэкапов: {e.stderr}')
 
 
 @dataclass
 class ConfigFile:
+    """Connection and application parameters configuration."""
+
     ssh_host: str
+    """Remote server address."""
     ssh_user: str
+    """Username for SSH connection."""
     ssh_key: Path
+    """Path to private SSH key."""
     remote_json_path: str
+    """Path to Xray configuration file on remote server."""
     backup_dir: str
+    """Directory for storing backups on remote server."""
     backup_count: int
+    """Maximum number of backups to keep."""
     target_outbound_tag: str
+    """Outbound tag for domain management."""
 
     @staticmethod
     def get_config_path() -> Path:
-        """Возвращает путь к конфигурационному файлу с каскадным поиском.
+        """Return configuration file path with cascading search.
 
-        Проверяет в следующем порядке:
-        1. Рядом со скриптом: ./config.json
-        2. В XDG директории: ~/.config/xray-domain-updater/config.json
+        Checks in the following order:
+        1. Next to script: ./config.json
+        2. In XDG directory: ~/.config/xray-domain-updater/config.json
 
-        Возвращает первый найденный файл или XDG путь если ничего не найдено.
+        Returns first found file or XDG path if nothing found.
         """
-        # Путь рядом со скриптом
         script_dir_config = Path(__file__).parent / 'config.json'
         if script_dir_config.exists():
             return script_dir_config
 
-        # Путь в XDG директории (исправлено имя: xray-domain-updater)
+        # Path in XDG directory (fixed name: xray-domain-updater)
         xdg_config = Path.home() / '.config' / 'xray-domain-updater' / 'config.json'
         if xdg_config.exists():
             return xdg_config
 
-        # Если ничего не найдено, возвращаем XDG путь для сообщения об ошибке
+        # If nothing found, return XDG path for error message
         return xdg_config
 
     @staticmethod
     def check_file_permissions(path: Path) -> None:
-        """Проверяет права доступа к файлу (должны быть 600 или 400)."""
+        """Check file permissions (should be 600 or 400)."""
         if not path.exists():
             return
 
@@ -331,7 +355,7 @@ class ConfigFile:
 
     @classmethod
     def from_file(cls, config_path: Path | None = None) -> 'ConfigFile':
-        """Загружает конфигурацию из файла."""
+        """Load configuration from file."""
         if config_path is None:
             config_path = cls.get_config_path()
 
@@ -392,7 +416,7 @@ class ConfigFile:
             return config
 
     def validate(self) -> None:
-        """Валидирует параметры конфигурации."""
+        """Validate configuration parameters."""
         if not self.ssh_key.exists():
             get_logger().error(f'SSH ключ не найден: {self.ssh_key}')
             get_logger().error('Проверьте путь к ключу в конфигурационном файле')
@@ -402,9 +426,9 @@ class ConfigFile:
 
 
 def execute_ssh_command(
-    command: str, config: ConfigFile, *, check: bool = False, **kwargs: Any
+    command: str, *, config: ConfigFile, check: bool = False, **kwargs: Any
 ) -> subprocess.CompletedProcess[Any]:
-    """Выполнить SSH команду на удаленном сервере."""
+    """Execute SSH command on remote server."""
     ssh_cmd = [
         'ssh',
         '-i',
@@ -415,7 +439,6 @@ def execute_ssh_command(
     return subprocess.run(ssh_cmd, check=check, **kwargs)
 
 
-# ==== Argument parsing ====
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Управление списком доменов xray на удалённом сервере.')
     parser.add_argument('--verbose', '-v', action='store_true', help='Включить подробный вывод')
@@ -428,7 +451,6 @@ def parse_args() -> argparse.Namespace:
     )
     subparsers = parser.add_subparsers(dest='command', help='Доступные команды')
 
-    # Существующие команды
     subparsers.add_parser('list', help='Показать список доменов')
 
     add_parser = subparsers.add_parser('add', help='Добавить домен')
@@ -440,7 +462,6 @@ def parse_args() -> argparse.Namespace:
 
     subparsers.add_parser('restart', help='Перезапустить сервис')
 
-    # Новые команды для бэкапов
     backup_parser = subparsers.add_parser('backup', help='Управление бэкапами')
     backup_subparsers = backup_parser.add_subparsers(dest='backup_command')
 
@@ -457,13 +478,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# ==== JSON operations ====
 def read_remote_json(config: ConfigFile) -> XrayConfig:
     """Read JSON configuration from remote server."""
     try:
         result = execute_ssh_command(
             f'cat {config.remote_json_path}',
-            config,
+            config=config,
             check=True,
             capture_output=True,
             text=True,
@@ -480,15 +500,15 @@ def read_remote_json(config: ConfigFile) -> XrayConfig:
         sys.exit(1)
 
 
-def write_remote_json(xray_config: XrayConfig, config: ConfigFile, create_backup: bool = True) -> None:
+def write_remote_json(*, xray_config: XrayConfig, config: ConfigFile, create_backup: bool = True) -> None:
     """Write JSON configuration to remote server with backup and validation."""
     xray_config.validate_json_structure()
 
     if create_backup:
         backup_manager = BackupManager(config.backup_dir, config.backup_count)
-        backup_manager.ensure_backup_dir_exists(config)
+        backup_manager.ensure_backup_dir_exists(config=config)
         current_config = read_remote_json(config)
-        backup_filename = backup_manager.create_backup(current_config, config)
+        backup_filename = backup_manager.create_backup(xray_config=current_config, config=config)
         get_logger().info(f'Создан бэкап: {backup_filename}')
 
     tmp_path: str | None = None
@@ -498,7 +518,7 @@ def write_remote_json(xray_config: XrayConfig, config: ConfigFile, create_backup
             tmp_path = tmp.name
 
         with open(tmp_path, 'rb') as f:
-            execute_ssh_command(f'cat > {config.remote_json_path}', config, stdin=f, check=True)
+            execute_ssh_command(f'cat > {config.remote_json_path}', config=config, stdin=f, check=True)
         get_logger().info(f'JSON успешно отправлен на сервер {config.ssh_host}')
     except subprocess.CalledProcessError as e:
         get_logger().error(f'Ошибка при записи JSON файла: {e.stderr}')
@@ -508,7 +528,7 @@ def write_remote_json(xray_config: XrayConfig, config: ConfigFile, create_backup
             Path(tmp_path).unlink()
 
     if create_backup:
-        backup_manager.cleanup_old_backups(config)
+        backup_manager.cleanup_old_backups(config=config)
 
 
 def restart_service(config: ConfigFile) -> None:
@@ -518,7 +538,7 @@ def restart_service(config: ConfigFile) -> None:
 
         restart_command = f'{XKEEN_ENV_PATH} {XKEEN_PATH} -restart 2>&1'
 
-        execute_ssh_command(restart_command, config, check=False, timeout=XKEEN_RESTART_TIMEOUT, text=True)
+        execute_ssh_command(restart_command, config=config, check=False, timeout=XKEEN_RESTART_TIMEOUT, text=True)
         get_logger().info('xkeen -restart завершен успешно')
 
     except subprocess.TimeoutExpired:
@@ -541,11 +561,11 @@ def restart_service(config: ConfigFile) -> None:
 
 
 def check_service_status(config: ConfigFile) -> bool:
-    """Проверить статус сервиса xkeen."""
+    """Check xkeen service status."""
     try:
         execute_ssh_command(
             f'{XKEEN_ENV_PATH} {XKEEN_PATH} -status',
-            config,
+            config=config,
             check=True,
             capture_output=True,
             text=True,
@@ -558,12 +578,12 @@ def check_service_status(config: ConfigFile) -> bool:
 
 
 def check_service_status_with_output(config: ConfigFile) -> bool:
-    """Проверить статус сервиса xkeen с выводом в консоль."""
+    """Check xkeen service status with console output."""
     try:
         get_logger().info('Выполнение xkeen -status...')
         result = execute_ssh_command(
             f'{XKEEN_ENV_PATH} {XKEEN_PATH} -status',
-            config,
+            config=config,
             check=False,
             text=True,
             timeout=XKEEN_STATUS_TIMEOUT,
@@ -578,8 +598,7 @@ def check_service_status_with_output(config: ConfigFile) -> bool:
         return result.returncode == 0
 
 
-# ==== Domain management functions ====
-def list_domains(xray_config: XrayConfig, config: ConfigFile) -> None:
+def list_domains(*, xray_config: XrayConfig, config: ConfigFile) -> None:
     """Display numbered list of domains with total count."""
     try:
         domain_list = xray_config.get_domains_for_outbound(config.target_outbound_tag)
@@ -593,7 +612,7 @@ def list_domains(xray_config: XrayConfig, config: ConfigFile) -> None:
         sys.exit(1)
 
 
-def add_domain_to_config(xray_config: XrayConfig, domain_to_add: str, config: ConfigFile) -> XrayConfig:
+def add_domain_to_config(*, xray_config: XrayConfig, domain_to_add: str, config: ConfigFile) -> XrayConfig:
     """Add domain to the configuration."""
     try:
         added = xray_config.add_domain_to_outbound(config.target_outbound_tag, domain_to_add)
@@ -608,7 +627,7 @@ def add_domain_to_config(xray_config: XrayConfig, domain_to_add: str, config: Co
 
 
 def remove_domain_from_config(
-    xray_config: XrayConfig, domain_index: int, config: ConfigFile, confirm: bool = False
+    *, xray_config: XrayConfig, domain_index: int, config: ConfigFile, confirm: bool = False
 ) -> XrayConfig:
     """Remove domain from the configuration by index."""
     try:
@@ -621,12 +640,10 @@ def remove_domain_from_config(
         domain_to_remove = domains[domain_index - 1]
 
         if not confirm:
-            # Режим preview: только показать информацию
             get_logger().info(f'Домен для удаления: [{domain_index}] {domain_to_remove}')
             get_logger().info('Для подтверждения удаления используйте флаг -y')
-            return xray_config  # Возвращаем без изменений
+            return xray_config
 
-        # Режим confirm: удалить домен
         xray_config.remove_domain_from_outbound(config.target_outbound_tag, domain_to_remove)
         get_logger().info(f'Домен [{domain_index}] {domain_to_remove} успешно удален')
     except ValueError as e:
@@ -635,13 +652,12 @@ def remove_domain_from_config(
     return xray_config
 
 
-# ==== Command handlers ====
 def handle_list_command(args: argparse.Namespace) -> None:
     """Handle list command."""
     try:
         config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
         xray_config: XrayConfig = read_remote_json(config)
-        list_domains(xray_config, config)
+        list_domains(xray_config=xray_config, config=config)
     except (ValueError, KeyError, TypeError) as e:
         get_logger().error(f'Ошибка при обработке команды list: {e}')
         sys.exit(1)
@@ -652,8 +668,8 @@ def handle_add_command(args: argparse.Namespace) -> None:
     try:
         config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
         xray_config: XrayConfig = read_remote_json(config)
-        updated: XrayConfig = add_domain_to_config(xray_config, args.domain, config)
-        write_remote_json(updated, config, create_backup=True)
+        updated: XrayConfig = add_domain_to_config(xray_config=xray_config, domain_to_add=args.domain, config=config)
+        write_remote_json(xray_config=updated, config=config, create_backup=True)
         restart_service(config)
     except (ValueError, KeyError, TypeError) as e:
         get_logger().error(f'Ошибка при обработке команды add: {e}')
@@ -666,14 +682,14 @@ def handle_remove_command(args: argparse.Namespace) -> None:
         config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
         xray_config: XrayConfig = read_remote_json(config)
 
-        # Проверяем наличие флага -y
         confirm = getattr(args, 'yes', False)
 
-        updated: XrayConfig = remove_domain_from_config(xray_config, args.index, config, confirm=confirm)
+        updated: XrayConfig = remove_domain_from_config(
+            xray_config=xray_config, domain_index=args.index, config=config, confirm=confirm
+        )
 
-        # Сохраняем и перезапускаем только если флаг -y был указан
         if confirm:
-            write_remote_json(updated, config, create_backup=True)
+            write_remote_json(xray_config=updated, config=config, create_backup=True)
             restart_service(config)
     except (ValueError, KeyError, TypeError) as e:
         get_logger().error(f'Ошибка при обработке команды remove: {e}')
@@ -690,7 +706,7 @@ def handle_backup_list_command(args: argparse.Namespace) -> None:
     """Handle backup list command."""
     config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
-    backups = backup_manager.list_backups(config)
+    backups = backup_manager.list_backups(config=config)
     if not backups:
         get_logger().info('Бэкапы не найдены')
         return
@@ -704,7 +720,7 @@ def handle_backup_clean_command(args: argparse.Namespace) -> None:
     """Handle backup clean command."""
     config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
-    backup_manager.cleanup_old_backups(config)
+    backup_manager.cleanup_old_backups(config=config)
     get_logger().info('Старые бэкапы очищены')
 
 
@@ -731,13 +747,13 @@ def handle_restore_command(args: argparse.Namespace) -> None:
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
 
     if args.preview:
-        content = backup_manager.restore_backup(args.index, config, preview_only=True)
+        content = backup_manager.restore_backup(index=args.index, config=config, preview_only=True)
         get_logger().info(f'Содержимое бэкапа #{args.index}:')
         if content:
             get_logger().info(content)
 
     if args.confirm:
-        backup_manager.restore_backup(args.index, config, preview_only=False)
+        backup_manager.restore_backup(index=args.index, config=config, preview_only=False)
         get_logger().info(f'Бэкап #{args.index} восстановлен')
         restart_service(config)
 
@@ -751,7 +767,6 @@ def handle_status_command(args: argparse.Namespace) -> None:
         get_logger().error('Сервис недоступен или есть ошибки конфигурации')
 
 
-# ==== Command mapping ====
 COMMANDS: dict[str, Callable[[argparse.Namespace], None]] = {
     'list': handle_list_command,
     'add': handle_add_command,
@@ -762,7 +777,6 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], None]] = {
 }
 
 
-# ==== Main function ====
 def main() -> None:
     """Main application entry point."""
     args: argparse.Namespace = parse_args()
