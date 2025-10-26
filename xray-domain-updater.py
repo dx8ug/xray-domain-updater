@@ -21,6 +21,13 @@ XKEEN_RESTART_TIMEOUT = 30  # seconds
 XKEEN_STATUS_TIMEOUT = 15  # seconds
 
 
+# ==== Backup filename configuration ====
+BACKUP_FILENAME_FORMAT = 'routing_%Y%m%d_%H%M%S.json'
+BACKUP_FILENAME_GLOB = 'routing_*.json'
+BACKUP_FILENAME_REGEX = r'routing_(\d{8}_\d{6})\.json'
+BACKUP_TIMESTAMP_FORMAT = '%Y%m%d_%H%M%S'
+
+
 # ==== Logging configuration ====
 def setup_logging(verbose: bool = False) -> logging.Logger:
     """Настроить logging для приложения."""
@@ -177,9 +184,9 @@ class BackupManager:
     backup_dir: str
     max_backups: int
 
-    def create_backup_filename(self, backup_filename_format: str) -> str:
+    def create_backup_filename(self) -> str:
         """Создать имя файла бэкапа с текущим timestamp."""
-        return datetime.now(UTC).strftime(backup_filename_format)
+        return datetime.now(UTC).strftime(BACKUP_FILENAME_FORMAT)
 
     def ensure_backup_dir_exists(self, config: 'ConfigFile') -> None:
         """Убедиться что директория бэкапов существует на удаленном сервере."""
@@ -191,7 +198,7 @@ class BackupManager:
 
     def create_backup(self, xray_config: XrayConfig, config: 'ConfigFile') -> str:
         """Создать бэкап текущей конфигурации."""
-        backup_filename = self.create_backup_filename(config.backup_filename_format)
+        backup_filename = self.create_backup_filename()
         backup_path = f'{self.backup_dir}/{backup_filename}'
 
         try:
@@ -212,7 +219,7 @@ class BackupManager:
         """Получить список бэкапов: [(index, filename, timestamp)]."""
         try:
             result = execute_ssh_command(
-                f'ls -1t {self.backup_dir}/05_routing_*.json 2>/dev/null || true',
+                f'ls -1t {self.backup_dir}/{BACKUP_FILENAME_GLOB} 2>/dev/null || true',
                 config,
                 capture_output=True,
                 check=True,
@@ -223,11 +230,11 @@ class BackupManager:
             for i, line in enumerate(result.stdout.strip().split('\n'), 1):
                 if line:
                     filename = Path(line).name
-                    match = re.search(r'05_routing_(\d{8}_\d{6})\.json', filename)
+                    match = re.search(BACKUP_FILENAME_REGEX, filename)
                     if match:
                         timestamp_str = match.group(1)
                         try:
-                            timestamp = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S').replace(tzinfo=UTC)
+                            timestamp = datetime.strptime(timestamp_str, BACKUP_TIMESTAMP_FORMAT).replace(tzinfo=UTC)
                             readable_time = timestamp.strftime('%Y-%m-%d %H:%M:%S')
                             backups.append((i, filename, readable_time))
                         except ValueError:
@@ -285,7 +292,6 @@ class ConfigFile:
     backup_dir: str
     backup_count: int
     target_outbound_tag: str
-    backup_filename_format: str = '05_routing_%Y%m%d_%H%M%S.json'
 
     @staticmethod
     def get_config_path() -> Path:
@@ -376,7 +382,6 @@ class ConfigFile:
                 backup_dir=backup_config['dir'],
                 backup_count=backup_config['count'],
                 target_outbound_tag=xray_config['target_outbound_tag'],
-                backup_filename_format=backup_config.get('filename_format', '05_routing_%Y%m%d_%H%M%S.json'),
             )
 
             config.validate()
