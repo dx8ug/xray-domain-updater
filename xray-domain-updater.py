@@ -27,10 +27,10 @@ BACKUP_FILENAME_REGEX = r'routing_(\d{8}_\d{6})\.json'
 BACKUP_TIMESTAMP_FORMAT = '%Y%m%d_%H%M%S'
 
 
-def setup_logging(verbose: bool = False) -> logging.Logger:
+def setup_logging() -> logging.Logger:
     """Set up logging for the application."""
     logger = logging.getLogger('xray-updater')
-    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    logger.setLevel(logging.INFO)
     logger.propagate = False
     logger.handlers.clear()
 
@@ -439,7 +439,6 @@ def execute_ssh_command(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Manage xray domain list on remote server.')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
     parser.add_argument(
         '--config',
         type=Path,
@@ -766,7 +765,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], None]] = {
 def main() -> None:
     """Main application entry point."""
     args: argparse.Namespace = parse_args()
-    setup_logging(args.verbose if hasattr(args, 'verbose') else False)
+    setup_logging()
 
     if not args.command:
         get_logger().error('No command specified. Use -h or --help for assistance.')
