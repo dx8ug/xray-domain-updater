@@ -205,7 +205,7 @@ class BackupManager:
     def ensure_backup_dir_exists(self, *, config: 'ConfigFile') -> None:
         """Ensure backup directory exists on remote server."""
         try:
-            execute_ssh_command(f'mkdir -p {self.backup_dir}', config=config, check=True, capture_output=True)
+            execute_ssh_command(command=f'mkdir -p {self.backup_dir}', config=config, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             get_logger().error(f'Error creating backup directory: {e.stderr}')
             raise
@@ -221,7 +221,7 @@ class BackupManager:
                 tmp_path = tmp.name
 
             with open(tmp_path, 'rb') as f:
-                execute_ssh_command(f'cat > {backup_path}', config=config, stdin=f, check=True)
+                execute_ssh_command(command=f'cat > {backup_path}', config=config, stdin=f, check=True)
             Path(tmp_path).unlink()
         except subprocess.CalledProcessError as e:
             get_logger().error(f'Error creating backup: {e.stderr}')
@@ -233,7 +233,7 @@ class BackupManager:
         """Get list of backups: [(index, filename, timestamp)]."""
         try:
             result = execute_ssh_command(
-                f'ls -1t {self.backup_dir}/{BACKUP_FILENAME_GLOB} 2>/dev/null || true',
+                command=f'ls -1t {self.backup_dir}/{BACKUP_FILENAME_GLOB} 2>/dev/null || true',
                 config=config,
                 capture_output=True,
                 check=True,
@@ -270,13 +270,13 @@ class BackupManager:
 
         try:
             result = execute_ssh_command(
-                f'cat {backup_path}', config=config, capture_output=True, check=True, text=True
+                command=f'cat {backup_path}', config=config, capture_output=True, check=True, text=True
             )
 
             if preview_only:
                 return result.stdout
 
-            execute_ssh_command(f'cp {backup_path} {config.remote_json_path}', config=config, check=True)
+            execute_ssh_command(command=f'cp {backup_path} {config.remote_json_path}', config=config, check=True)
         except subprocess.CalledProcessError as e:
             get_logger().error(f'Error restoring backup: {e.stderr}')
             raise
@@ -294,7 +294,7 @@ class BackupManager:
         try:
             for _, filename, _ in to_remove:
                 backup_path = f'{self.backup_dir}/{filename}'
-                execute_ssh_command(f'rm -f {backup_path}', config=config, check=True)
+                execute_ssh_command(command=f'rm -f {backup_path}', config=config, check=True)
         except subprocess.CalledProcessError as e:
             get_logger().warning(f'Error cleaning up old backups: {e.stderr}')
 
@@ -426,7 +426,7 @@ class ConfigFile:
 
 
 def execute_ssh_command(
-    command: str, *, config: ConfigFile, check: bool = False, **kwargs: Any
+    *, command: str, config: ConfigFile, check: bool = False, **kwargs: Any
 ) -> subprocess.CompletedProcess[Any]:
     """Execute SSH command on remote server."""
     ssh_cmd = [
@@ -481,7 +481,7 @@ def read_remote_json(config: ConfigFile) -> XrayConfig:
     """Read JSON configuration from remote server."""
     try:
         result = execute_ssh_command(
-            f'cat {config.remote_json_path}',
+            command=f'cat {config.remote_json_path}',
             config=config,
             check=True,
             capture_output=True,
@@ -517,7 +517,7 @@ def write_remote_json(*, xray_config: XrayConfig, config: ConfigFile, create_bac
             tmp_path = tmp.name
 
         with open(tmp_path, 'rb') as f:
-            execute_ssh_command(f'cat > {config.remote_json_path}', config=config, stdin=f, check=True)
+            execute_ssh_command(command=f'cat > {config.remote_json_path}', config=config, stdin=f, check=True)
         get_logger().info(f'JSON successfully uploaded to server {config.ssh_host}')
     except subprocess.CalledProcessError as e:
         get_logger().error(f'Error writing JSON file: {e.stderr}')
@@ -537,7 +537,9 @@ def restart_service(config: ConfigFile) -> None:
 
         restart_command = f'{XKEEN_ENV_PATH} {XKEEN_PATH} -restart 2>&1'
 
-        execute_ssh_command(restart_command, config=config, check=False, timeout=XKEEN_RESTART_TIMEOUT, text=True)
+        execute_ssh_command(
+            command=restart_command, config=config, check=False, timeout=XKEEN_RESTART_TIMEOUT, text=True
+        )
         get_logger().info('xkeen -restart completed successfully')
 
     except subprocess.TimeoutExpired:
@@ -552,7 +554,7 @@ def restart_service(config: ConfigFile) -> None:
         get_logger().error(f'Unexpected error during restart: {e}')
 
     get_logger().info('Checking service status after restart...')
-    if check_service_status_with_output(config):
+    if check_service_status(config):
         get_logger().info('Service is running correctly')
     else:
         get_logger().error('WARNING: Service unavailable or configuration errors detected')
@@ -560,28 +562,11 @@ def restart_service(config: ConfigFile) -> None:
 
 
 def check_service_status(config: ConfigFile) -> bool:
-    """Check xkeen service status."""
-    try:
-        execute_ssh_command(
-            f'{XKEEN_ENV_PATH} {XKEEN_PATH} -status',
-            config=config,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=XKEEN_STATUS_TIMEOUT,
-        )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
-    else:
-        return True
-
-
-def check_service_status_with_output(config: ConfigFile) -> bool:
     """Check xkeen service status with console output."""
     try:
         get_logger().info('Executing xkeen -status...')
         result = execute_ssh_command(
-            f'{XKEEN_ENV_PATH} {XKEEN_PATH} -status',
+            command=f'{XKEEN_ENV_PATH} {XKEEN_PATH} -status',
             config=config,
             check=False,
             text=True,
@@ -760,7 +745,7 @@ def handle_restore_command(args: argparse.Namespace) -> None:
 def handle_status_command(args: argparse.Namespace) -> None:
     """Handle status command."""
     config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
-    if check_service_status_with_output(config):
+    if check_service_status(config):
         get_logger().info('Service is running correctly')
     else:
         get_logger().error('Service unavailable or configuration errors detected')
