@@ -139,28 +139,28 @@ class XrayConfig:
     def validate_json_structure(self) -> None:
         """Validate configuration structure before writing."""
         if not self.routing:
-            raise ValueError('Отсутствует секция routing')
+            raise ValueError('Missing routing section')
         if not self.routing.domain_strategy:
-            raise ValueError('Отсутствует domainStrategy')
+            raise ValueError('Missing domainStrategy')
         if not self.routing.rules:
-            raise ValueError('Отсутствует список правил')
+            raise ValueError('Missing rules list')
 
         try:
             json.dumps(self.to_dict())
         except (TypeError, ValueError) as e:
-            raise ValueError(f'Конфигурация не может быть сериализована в JSON: {e}') from e
+            raise ValueError(f'Configuration cannot be serialized to JSON: {e}') from e
 
     def find_rule_by_outbound_tag(self, tag: str) -> XrayRule:
         for rule in self.routing.rules:
             if rule.outbound_tag == tag:
                 return rule
-        raise ValueError(f"Правило с outboundTag '{tag}' не найдено")
+        raise ValueError(f"Rule with outboundTag '{tag}' not found")
 
     def validate_rule_has_domains(self, rule: XrayRule) -> None:
         if rule.domain is None:
-            raise ValueError(f"Правило с outbound_tag '{rule.outbound_tag}' не содержит поля domain")
+            raise ValueError(f"Rule with outbound_tag '{rule.outbound_tag}' does not contain domain field")
         if not isinstance(rule.domain, list):
-            raise TypeError(f"Поле domain в правиле '{rule.outbound_tag}' не является списком")
+            raise TypeError(f"Domain field in rule '{rule.outbound_tag}' is not a list")
 
     def get_domains_for_outbound(self, tag: str) -> list[str]:
         rule = self.find_rule_by_outbound_tag(tag)
@@ -207,7 +207,7 @@ class BackupManager:
         try:
             execute_ssh_command(f'mkdir -p {self.backup_dir}', config=config, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
-            get_logger().error(f'Ошибка создания директории бэкапов: {e.stderr}')
+            get_logger().error(f'Error creating backup directory: {e.stderr}')
             raise
 
     def create_backup(self, *, xray_config: XrayConfig, config: 'ConfigFile') -> str:
@@ -224,7 +224,7 @@ class BackupManager:
                 execute_ssh_command(f'cat > {backup_path}', config=config, stdin=f, check=True)
             Path(tmp_path).unlink()
         except subprocess.CalledProcessError as e:
-            get_logger().error(f'Ошибка создания бэкапа: {e.stderr}')
+            get_logger().error(f'Error creating backup: {e.stderr}')
             raise
         else:
             return backup_filename
@@ -252,7 +252,7 @@ class BackupManager:
                             readable_time = timestamp.strftime('%Y-%m-%d %H:%M:%S')
                             backups.append((i, filename, readable_time))
                         except ValueError:
-                            backups.append((i, filename, 'неизвестно'))
+                            backups.append((i, filename, 'unknown'))
 
         except subprocess.CalledProcessError:
             return []
@@ -263,7 +263,7 @@ class BackupManager:
         """Restore backup by index."""
         backups = self.list_backups(config=config)
         if not backups or index < 1 or index > len(backups):
-            raise ValueError(f'Неверный индекс бэкапа: {index}')
+            raise ValueError(f'Invalid backup index: {index}')
 
         _, filename, _ = backups[index - 1]
         backup_path = f'{self.backup_dir}/{filename}'
@@ -278,7 +278,7 @@ class BackupManager:
 
             execute_ssh_command(f'cp {backup_path} {config.remote_json_path}', config=config, check=True)
         except subprocess.CalledProcessError as e:
-            get_logger().error(f'Ошибка восстановления бэкапа: {e.stderr}')
+            get_logger().error(f'Error restoring backup: {e.stderr}')
             raise
         else:
             return None
@@ -296,7 +296,7 @@ class BackupManager:
                 backup_path = f'{self.backup_dir}/{filename}'
                 execute_ssh_command(f'rm -f {backup_path}', config=config, check=True)
         except subprocess.CalledProcessError as e:
-            get_logger().warning(f'Ошибка очистки старых бэкапов: {e.stderr}')
+            get_logger().warning(f'Error cleaning up old backups: {e.stderr}')
 
 
 @dataclass
@@ -350,8 +350,8 @@ class ConfigFile:
         mode = stat_info.st_mode & 0o777
 
         if mode not in [0o600, 0o400]:
-            get_logger().warning(f'ПРЕДУПРЕЖДЕНИЕ: Небезопасные права доступа к конфигурационному файлу: {oct(mode)}')
-            get_logger().warning(f'Рекомендуется изменить права доступа: chmod 600 {path}')
+            get_logger().warning(f'WARNING: Unsafe permissions on configuration file: {oct(mode)}')
+            get_logger().warning(f'Recommended: chmod 600 {path}')
 
     @classmethod
     def from_file(cls, config_path: Path | None = None) -> 'ConfigFile':
@@ -360,8 +360,8 @@ class ConfigFile:
             config_path = cls.get_config_path()
 
         if not config_path.exists():
-            get_logger().error('Конфигурационный файл не найден')
-            get_logger().error('Проверены следующие местоположения:')
+            get_logger().error('Configuration file not found')
+            get_logger().error('Checked the following locations:')
 
             script_dir_config = Path(__file__).parent / 'config.json'
             xdg_config = Path.home() / '.config' / 'xray-domain-updater' / 'config.json'
@@ -371,12 +371,12 @@ class ConfigFile:
 
             example_path = Path(__file__).parent / 'config.example.json'
             if example_path.exists():
-                get_logger().error(f'\nПример конфигурации: {example_path}')
+                get_logger().error(f'\nExample configuration: {example_path}')
             else:
-                get_logger().error('\nПример конфигурации недоступен')
+                get_logger().error('\nExample configuration not available')
 
-            get_logger().error('Создайте конфигурационный файл и заполните его данными')
-            get_logger().error('Или используйте флаг --config для указания пути к файлу')
+            get_logger().error('Create a configuration file and fill it with data')
+            get_logger().error('Or use --config flag to specify the file path')
             sys.exit(1)
 
         cls.check_file_permissions(config_path)
@@ -385,10 +385,10 @@ class ConfigFile:
             with open(config_path) as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
-            get_logger().error(f'Ошибка парсинга JSON в конфигурационном файле: {e}')
+            get_logger().error(f'JSON parsing error in configuration file: {e}')
             sys.exit(1)
         except Exception as e:
-            get_logger().error(f'Ошибка чтения конфигурационного файла: {e}')
+            get_logger().error(f'Error reading configuration file: {e}')
             sys.exit(1)
 
         try:
@@ -410,7 +410,7 @@ class ConfigFile:
 
             config.validate()
         except KeyError as e:
-            get_logger().error(f'Отсутствует обязательное поле в конфигурационном файле: {e}')
+            get_logger().error(f'Missing required field in configuration file: {e}')
             sys.exit(1)
         else:
             return config
@@ -418,8 +418,8 @@ class ConfigFile:
     def validate(self) -> None:
         """Validate configuration parameters."""
         if not self.ssh_key.exists():
-            get_logger().error(f'SSH ключ не найден: {self.ssh_key}')
-            get_logger().error('Проверьте путь к ключу в конфигурационном файле')
+            get_logger().error(f'SSH key not found: {self.ssh_key}')
+            get_logger().error('Check key path in configuration file')
             sys.exit(1)
 
         self.check_file_permissions(self.ssh_key)
@@ -440,40 +440,39 @@ def execute_ssh_command(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='Управление списком доменов xray на удалённом сервере.')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Включить подробный вывод')
+    parser = argparse.ArgumentParser(description='Manage xray domain list on remote server.')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
     parser.add_argument(
         '--config',
         type=Path,
         default=None,
-        help='Путь к конфигурационному файлу '
-        '(по умолчанию: ./config.json или ~/.config/xray-domain-updater/config.json)',
+        help='Path to configuration file (default: ./config.json or ~/.config/xray-domain-updater/config.json)',
     )
-    subparsers = parser.add_subparsers(dest='command', help='Доступные команды')
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
-    subparsers.add_parser('list', help='Показать список доменов')
+    subparsers.add_parser('list', help='Show domain list')
 
-    add_parser = subparsers.add_parser('add', help='Добавить домен')
-    add_parser.add_argument('domain', help='Домен для добавления')
+    add_parser = subparsers.add_parser('add', help='Add domain')
+    add_parser.add_argument('domain', help='Domain to add')
 
-    remove_parser = subparsers.add_parser('remove', help='Удалить домен по индексу')
-    remove_parser.add_argument('index', type=int, help='Индекс домена для удаления (из списка list)')
-    remove_parser.add_argument('-y', '--yes', action='store_true', help='Подтвердить удаление без запроса')
+    remove_parser = subparsers.add_parser('remove', help='Remove domain by index')
+    remove_parser.add_argument('index', type=int, help='Domain index to remove (from list command)')
+    remove_parser.add_argument('-y', '--yes', action='store_true', help='Confirm removal without prompt')
 
-    subparsers.add_parser('restart', help='Перезапустить сервис')
+    subparsers.add_parser('restart', help='Restart service')
 
-    backup_parser = subparsers.add_parser('backup', help='Управление бэкапами')
+    backup_parser = subparsers.add_parser('backup', help='Backup management')
     backup_subparsers = backup_parser.add_subparsers(dest='backup_command')
 
-    backup_subparsers.add_parser('list', help='Показать список бэкапов')
-    backup_subparsers.add_parser('clean', help='Очистить старые бэкапы')
+    backup_subparsers.add_parser('list', help='Show backup list')
+    backup_subparsers.add_parser('clean', help='Clean old backups')
 
-    restore_parser = backup_subparsers.add_parser('restore', help='Восстановить из бэкапа')
-    restore_parser.add_argument('index', type=int, help='Индекс бэкапа для восстановления')
-    restore_parser.add_argument('--preview', action='store_true', help='Показать содержимое бэкапа')
-    restore_parser.add_argument('--confirm', action='store_true', help='Подтвердить восстановление')
+    restore_parser = backup_subparsers.add_parser('restore', help='Restore from backup')
+    restore_parser.add_argument('index', type=int, help='Backup index to restore')
+    restore_parser.add_argument('--preview', action='store_true', help='Show backup content')
+    restore_parser.add_argument('--confirm', action='store_true', help='Confirm restoration')
 
-    subparsers.add_parser('status', help='Проверить статус сервиса')
+    subparsers.add_parser('status', help='Check service status')
 
     return parser.parse_args()
 
@@ -490,13 +489,13 @@ def read_remote_json(config: ConfigFile) -> XrayConfig:
         )
         return XrayConfig.from_dict(json.loads(result.stdout))
     except subprocess.CalledProcessError as e:
-        get_logger().error(f'Ошибка при чтении JSON файла {config.remote_json_path}: {e.stderr}')
+        get_logger().error(f'Error reading JSON file {config.remote_json_path}: {e.stderr}')
         sys.exit(1)
     except json.JSONDecodeError as e:
-        get_logger().error(f'Ошибка парсинга JSON: {e}')
+        get_logger().error(f'JSON parsing error: {e}')
         sys.exit(1)
     except ValueError as e:
-        get_logger().error(f'Ошибка валидации структуры JSON: {e}')
+        get_logger().error(f'JSON structure validation error: {e}')
         sys.exit(1)
 
 
@@ -509,7 +508,7 @@ def write_remote_json(*, xray_config: XrayConfig, config: ConfigFile, create_bac
         backup_manager.ensure_backup_dir_exists(config=config)
         current_config = read_remote_json(config)
         backup_filename = backup_manager.create_backup(xray_config=current_config, config=config)
-        get_logger().info(f'Создан бэкап: {backup_filename}')
+        get_logger().info(f'Backup created: {backup_filename}')
 
     tmp_path: str | None = None
     try:
@@ -519,9 +518,9 @@ def write_remote_json(*, xray_config: XrayConfig, config: ConfigFile, create_bac
 
         with open(tmp_path, 'rb') as f:
             execute_ssh_command(f'cat > {config.remote_json_path}', config=config, stdin=f, check=True)
-        get_logger().info(f'JSON успешно отправлен на сервер {config.ssh_host}')
+        get_logger().info(f'JSON successfully uploaded to server {config.ssh_host}')
     except subprocess.CalledProcessError as e:
-        get_logger().error(f'Ошибка при записи JSON файла: {e.stderr}')
+        get_logger().error(f'Error writing JSON file: {e.stderr}')
         sys.exit(1)
     finally:
         if tmp_path and Path(tmp_path).exists():
@@ -534,30 +533,30 @@ def write_remote_json(*, xray_config: XrayConfig, config: ConfigFile, create_bac
 def restart_service(config: ConfigFile) -> None:
     """Restart xkeen service with proper PATH to avoid missing utilities."""
     try:
-        get_logger().info('Выполняется xkeen -restart')
+        get_logger().info('Executing xkeen -restart')
 
         restart_command = f'{XKEEN_ENV_PATH} {XKEEN_PATH} -restart 2>&1'
 
         execute_ssh_command(restart_command, config=config, check=False, timeout=XKEEN_RESTART_TIMEOUT, text=True)
-        get_logger().info('xkeen -restart завершен успешно')
+        get_logger().info('xkeen -restart completed successfully')
 
     except subprocess.TimeoutExpired:
-        get_logger().info('xkeen -restart выполняется дольше 30 секунд')
-        get_logger().info('Это может быть нормально - сервис перезапускается в фоне')
-        get_logger().info('Команда restart отправлена на сервер')
+        get_logger().info('xkeen -restart is taking longer than 30 seconds')
+        get_logger().info('This may be normal - service is restarting in background')
+        get_logger().info('Restart command sent to server')
     except subprocess.CalledProcessError as e:
-        get_logger().error(f'Ошибка при выполнении xkeen -restart: код возврата {e.returncode}')
+        get_logger().error(f'Error executing xkeen -restart: return code {e.returncode}')
         if hasattr(e, 'stderr') and e.stderr:
             get_logger().error(f'stderr: {e.stderr}')
     except Exception as e:
-        get_logger().error(f'Неожиданная ошибка при перезапуске: {e}')
+        get_logger().error(f'Unexpected error during restart: {e}')
 
-    get_logger().info('Проверка статуса сервиса после перезапуска...')
+    get_logger().info('Checking service status after restart...')
     if check_service_status_with_output(config):
-        get_logger().info('Сервис работает корректно')
+        get_logger().info('Service is running correctly')
     else:
-        get_logger().error('ВНИМАНИЕ: Сервис недоступен или есть ошибки конфигурации')
-        get_logger().error('Используйте команду backup restore для отката')
+        get_logger().error('WARNING: Service unavailable or configuration errors detected')
+        get_logger().error('Use backup restore command to rollback')
 
 
 def check_service_status(config: ConfigFile) -> bool:
@@ -580,7 +579,7 @@ def check_service_status(config: ConfigFile) -> bool:
 def check_service_status_with_output(config: ConfigFile) -> bool:
     """Check xkeen service status with console output."""
     try:
-        get_logger().info('Выполнение xkeen -status...')
+        get_logger().info('Executing xkeen -status...')
         result = execute_ssh_command(
             f'{XKEEN_ENV_PATH} {XKEEN_PATH} -status',
             config=config,
@@ -589,10 +588,10 @@ def check_service_status_with_output(config: ConfigFile) -> bool:
             timeout=XKEEN_STATUS_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        get_logger().error('Тайм-аут при выполнении xkeen -status')
+        get_logger().error('Timeout executing xkeen -status')
         return False
     except Exception as e:
-        get_logger().error(f'Ошибка при выполнении xkeen -status: {e}')
+        get_logger().error(f'Error executing xkeen -status: {e}')
         return False
     else:
         return result.returncode == 0
@@ -606,7 +605,7 @@ def list_domains(*, xray_config: XrayConfig, config: ConfigFile) -> None:
         for i, domain in enumerate(domain_list, 1):
             get_logger().info(f'{i}. {domain}')
 
-        get_logger().info(f'\nВсего доменов: {len(domain_list)}')
+        get_logger().info(f'\nTotal domains: {len(domain_list)}')
     except ValueError as e:
         get_logger().error(f'{e}')
         sys.exit(1)
@@ -617,9 +616,9 @@ def add_domain_to_config(*, xray_config: XrayConfig, domain_to_add: str, config:
     try:
         added = xray_config.add_domain_to_outbound(config.target_outbound_tag, domain_to_add)
         if added:
-            get_logger().info(f'Добавлен домен: {domain_to_add}')
+            get_logger().info(f'Domain added: {domain_to_add}')
         else:
-            get_logger().info(f'Домен {domain_to_add} уже есть в списке')
+            get_logger().info(f'Domain {domain_to_add} already in list')
     except ValueError as e:
         get_logger().error(f'{e}')
         sys.exit(1)
@@ -634,18 +633,18 @@ def remove_domain_from_config(
         domains = xray_config.get_domains_for_outbound(config.target_outbound_tag)
 
         if domain_index < 1 or domain_index > len(domains):
-            get_logger().error(f'Неверный индекс {domain_index}. Доступные индексы: 1-{len(domains)}')
+            get_logger().error(f'Invalid index {domain_index}. Available indices: 1-{len(domains)}')
             sys.exit(1)
 
         domain_to_remove = domains[domain_index - 1]
 
         if not confirm:
-            get_logger().info(f'Домен для удаления: [{domain_index}] {domain_to_remove}')
-            get_logger().info('Для подтверждения удаления используйте флаг -y')
+            get_logger().info(f'Domain to remove: [{domain_index}] {domain_to_remove}')
+            get_logger().info('Use -y flag to confirm removal')
             return xray_config
 
         xray_config.remove_domain_from_outbound(config.target_outbound_tag, domain_to_remove)
-        get_logger().info(f'Домен [{domain_index}] {domain_to_remove} успешно удален')
+        get_logger().info(f'Domain [{domain_index}] {domain_to_remove} successfully removed')
     except ValueError as e:
         get_logger().error(f'{e}')
         sys.exit(1)
@@ -659,7 +658,7 @@ def handle_list_command(args: argparse.Namespace) -> None:
         xray_config: XrayConfig = read_remote_json(config)
         list_domains(xray_config=xray_config, config=config)
     except (ValueError, KeyError, TypeError) as e:
-        get_logger().error(f'Ошибка при обработке команды list: {e}')
+        get_logger().error(f'Error handling list command: {e}')
         sys.exit(1)
 
 
@@ -672,7 +671,7 @@ def handle_add_command(args: argparse.Namespace) -> None:
         write_remote_json(xray_config=updated, config=config, create_backup=True)
         restart_service(config)
     except (ValueError, KeyError, TypeError) as e:
-        get_logger().error(f'Ошибка при обработке команды add: {e}')
+        get_logger().error(f'Error handling add command: {e}')
         sys.exit(1)
 
 
@@ -692,7 +691,7 @@ def handle_remove_command(args: argparse.Namespace) -> None:
             write_remote_json(xray_config=updated, config=config, create_backup=True)
             restart_service(config)
     except (ValueError, KeyError, TypeError) as e:
-        get_logger().error(f'Ошибка при обработке команды remove: {e}')
+        get_logger().error(f'Error handling remove command: {e}')
         sys.exit(1)
 
 
@@ -708,12 +707,12 @@ def handle_backup_list_command(args: argparse.Namespace) -> None:
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
     backups = backup_manager.list_backups(config=config)
     if not backups:
-        get_logger().info('Бэкапы не найдены')
+        get_logger().info('No backups found')
         return
 
     for index, filename, timestamp in backups:
         get_logger().info(f'{index}. {filename} ({timestamp})')
-    get_logger().info(f'\nВсего бэкапов: {len(backups)}')
+    get_logger().info(f'\nTotal backups: {len(backups)}')
 
 
 def handle_backup_clean_command(args: argparse.Namespace) -> None:
@@ -721,7 +720,7 @@ def handle_backup_clean_command(args: argparse.Namespace) -> None:
     config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     backup_manager = BackupManager(config.backup_dir, config.backup_count)
     backup_manager.cleanup_old_backups(config=config)
-    get_logger().info('Старые бэкапы очищены')
+    get_logger().info('Old backups cleaned')
 
 
 def handle_backup_command(args: argparse.Namespace) -> None:
@@ -733,14 +732,14 @@ def handle_backup_command(args: argparse.Namespace) -> None:
     elif args.backup_command == 'restore':
         handle_restore_command(args)
     else:
-        get_logger().error('Неизвестная команда backup')
+        get_logger().error('Unknown backup command')
         sys.exit(1)
 
 
 def handle_restore_command(args: argparse.Namespace) -> None:
     """Handle restore command."""
     if not args.preview and not args.confirm:
-        get_logger().error('Укажите --preview для просмотра или --confirm для восстановления')
+        get_logger().error('Specify --preview to view or --confirm to restore')
         sys.exit(1)
 
     config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
@@ -748,13 +747,13 @@ def handle_restore_command(args: argparse.Namespace) -> None:
 
     if args.preview:
         content = backup_manager.restore_backup(index=args.index, config=config, preview_only=True)
-        get_logger().info(f'Содержимое бэкапа #{args.index}:')
+        get_logger().info(f'Backup #{args.index} content:')
         if content:
             get_logger().info(content)
 
     if args.confirm:
         backup_manager.restore_backup(index=args.index, config=config, preview_only=False)
-        get_logger().info(f'Бэкап #{args.index} восстановлен')
+        get_logger().info(f'Backup #{args.index} restored')
         restart_service(config)
 
 
@@ -762,9 +761,9 @@ def handle_status_command(args: argparse.Namespace) -> None:
     """Handle status command."""
     config = ConfigFile.from_file(args.config if hasattr(args, 'config') else None)
     if check_service_status_with_output(config):
-        get_logger().info('Сервис работает корректно')
+        get_logger().info('Service is running correctly')
     else:
-        get_logger().error('Сервис недоступен или есть ошибки конфигурации')
+        get_logger().error('Service unavailable or configuration errors detected')
 
 
 COMMANDS: dict[str, Callable[[argparse.Namespace], None]] = {
@@ -783,14 +782,14 @@ def main() -> None:
     setup_logging(args.verbose if hasattr(args, 'verbose') else False)
 
     if not args.command:
-        get_logger().error('Команда не указана. Используйте -h или --help для получения справки.')
+        get_logger().error('No command specified. Use -h or --help for assistance.')
         sys.exit(1)
 
     command_handler: Callable[[argparse.Namespace], None] | None = COMMANDS.get(args.command)
     if command_handler:
         command_handler(args)
     else:
-        get_logger().error(f'Неизвестная команда: {args.command}')
+        get_logger().error(f'Unknown command: {args.command}')
         sys.exit(1)
 
 
